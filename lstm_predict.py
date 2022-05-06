@@ -22,10 +22,10 @@ import pandas as pd
 from scipy import stats
 
 # Read data
-N_visits=15 # Maximum number of inpatient visits in the dataset
+N_visits=42 # Maximum number of inpatient visits in the dataset
 
 def read_data(exp, N_visits):
-    label='sampledata_lstm_'+str(N_visits)+'.csv'
+    label='data_lstm_'+str(N_visits)+'.csv'
     print('Reading File: ',label)
     pidAdmMap = {}
     admDetailMap={}
@@ -34,22 +34,22 @@ def read_data(exp, N_visits):
     VisitIds=[]
     if exp[0:2]=='11':
         ind1=6
-        ind2=202       
+        ind2=206
     elif exp[0:2]=='10':
         ind1=6
-        ind2=17
+        ind2=21
     else:
-        ind1=17
-        ind2=202
+        ind1=21
+        ind2=206
     infd = open (label,'r')
     infd.readline()
     for line in infd:
         tokens = line.strip().split(',')
-        pid=int(tokens[0])
+        pid=int(float(tokens[0]))
         admId=(tokens[1])
         det=(tokens[ind1:ind2]) #200 if 185 d2v vector is used
-        output.append(tokens[5])      
-        Weights.append(tokens[203]) 
+        output.append(tokens[4])
+        Weights.append(tokens[5])
         VisitIds.append(tokens[1])
         if admId in admDetailMap:
             admDetailMap[admId].append(det)
@@ -59,43 +59,43 @@ def read_data(exp, N_visits):
             pidAdmMap[pid].append(admId)
         else:
             pidAdmMap[pid]=[admId]
-    infd.close()   
+    infd.close()
     _list = []
     for patient in pidAdmMap.keys():
         a = [admDetailMap[xx] for xx in pidAdmMap[patient]]
-        _list.append(a)    
-    X=np.array([np.array(xi) for xi in _list])   
+        _list.append(a)
+    X=np.array([np.array(xi) for xi in _list])
     a,b,c=X.shape
     Y=np.array(output)
     Sample_weight=np.array(Weights)
-    X = X.astype(np.float)
-    Y = Y.astype(np.float)
-    Sample_weight = Sample_weight.astype(np.float)
+    X = X.astype(float)
+    Y = Y.astype(float)
+    Sample_weight = Sample_weight.astype(float)
     Y=Y.reshape(X.shape[0],N_visits,1)
     return X, Y,Sample_weight,VisitIds
-    
+
 def ppv(y_true, y_pred):
     true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
     predicted_positives = K.sum(K.round(K.clip(y_pred, 0, 1)))
     ppv = true_positives / (predicted_positives + K.epsilon())
     return ppv
-    
+
 def npv(y_true, y_pred):
     true_negatives = K.sum(K.round(K.clip((1 - y_true) * (1 - y_pred), 0, 1)))
     predicted_negatives = K.sum(K.round(K.clip(1-y_pred, 0, 1)))
     npv = true_negatives / (predicted_negatives + K.epsilon())
     return npv
-    
+
 def sensitivity(y_true, y_pred):
     true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
     possible_positives = K.sum(K.round(K.clip(y_true, 0, 1)))
     return true_positives / (possible_positives + K.epsilon())
-    
+
 def specificity(y_true, y_pred):
     true_negatives = K.sum(K.round(K.clip((1-y_true) * (1-y_pred), 0, 1)))
     possible_negatives = K.sum(K.round(K.clip(1-y_true, 0, 1)))
     return true_negatives / (possible_negatives + K.epsilon())
-    
+
 def recall(y_true, y_pred):
     true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
     possible_positives = K.sum(K.round(K.clip(y_true, 0, 1)))
@@ -117,11 +117,11 @@ def model_eval(model, X_test,Y_test, Sample_weight_test,exp,X_train,Y_train,Samp
     y_test=np.delete(y_test,indices,0)
     score={}
     for thresh in np.arange(0.001,1,0.001):
-        y_pred_class=binarize([y_pred],thresh)[0]
-        cm= confusion_matrix(y_test, y_pred_class)
+        y_pred_class=binarize([y_pred],threshold=thresh)[0]
+        cm= confusion_matrix(y_test, y_pred_class, labels=[0,1])
         score[thresh]=(48000*cm[1,1]*0.5)-(7000*(cm[1,1]+cm[0,1]))
     thresh=max(score.items(), key=operator.itemgetter(1))[0]
-    
+
     y_pred = model.predict(X_test).ravel()
     y_test=Y_test.ravel()
     g=Sample_weight_test.ravel()
@@ -136,20 +136,21 @@ def model_eval(model, X_test,Y_test, Sample_weight_test,exp,X_train,Y_train,Samp
     else:
         fpr, tpr, thetas = roc_curve(y_test, y_pred,pos_label=1)
         prc, recal, thetas = precision_recall_curve(y_test, y_pred)
-        
+
     AUC_test = auc(fpr, tpr)
     PR_auc = auc(recal,prc)
-    
-    
-    y_pred=binarize([y_pred],thresh)[0]
-    cm= confusion_matrix(y_test, y_pred)
+
+
+    y_pred=binarize([y_pred],threshold=thresh)[0]
+    cm= confusion_matrix(y_test, y_pred, labels=[0,1])
+    print(y_test, y_pred, cm)
     cost_saved=(48000*cm[1,1]*0.5)-(7000*(cm[1,1]+cm[0,1]))
-    Accuracy=(cm[0,0]+cm[1,1])/sum(sum(cm))   
-    Sensitivity_test=cm[1,1]/(cm[1,0]+cm[1,1])
+    Accuracy=(cm[0,0]+cm[1,1])/sum(sum(cm))
+    Sensitivity_test=cm[1,1]/(cm[1,0]+cm[1,1] + K.epsilon())
     Specificity_test=cm[0,0]/(cm[0,0]+cm[0,1])
     F1_score=f1_score(y_test,y_pred)
-    cost_saved=cost_saved/(np.sum(y_test)*(48000-7000)*0.5)
-  
+    cost_saved=cost_saved/(np.sum(y_test)*(48000-7000)*0.5 + K.epsilon())
+
     return Accuracy, AUC_test, Sensitivity_test, Specificity_test, PR_auc, F1_score,cost_saved
 
 def save_print(AUC_test, Sensitivity_test, Specificity_test, PR_auc,F1_score,cost_saved, exp):
@@ -159,10 +160,10 @@ def save_print(AUC_test, Sensitivity_test, Specificity_test, PR_auc,F1_score,cos
     label4='PR_auc_'+exp+'.npy'
     label5='f1_score_'+exp+'.npy'
     label6='cost_saved_'+exp+'.npy'
-    np.save(label1, AUC_test) 
-    np.save(label2, Sensitivity_test) 
-    np.save(label3, Specificity_test) 
-    np.save(label4, PR_auc) 
+    np.save(label1, AUC_test)
+    np.save(label2, Sensitivity_test)
+    np.save(label3, Specificity_test)
+    np.save(label4, PR_auc)
     np.save(label5, F1_score)
     np.save(label6, cost_saved)
     val1=np.fromiter(AUC_test.values(), dtype=float)
@@ -174,7 +175,7 @@ def save_print(AUC_test, Sensitivity_test, Specificity_test, PR_auc,F1_score,cos
 
     print(label1,[np.mean(val1[np.nonzero(val1)]),np.std(val1[np.nonzero(val1)])])
     print(label2,[np.mean(val2[np.nonzero(val2)]),np.std(val2[np.nonzero(val2)])])
-    print(label3,[np.mean(val3[np.nonzero(val3)]),np.std(val3[np.nonzero(val3)])])                                                                                                                                                                                                                                                                                                                                                               
+    print(label3,[np.mean(val3[np.nonzero(val3)]),np.std(val3[np.nonzero(val3)])])
     print(label4,[np.mean(val4[np.nonzero(val4)]),np.std(val4[np.nonzero(val4)])])
     print(label5,[np.mean(val5[np.nonzero(val5)]),np.std(val5[np.nonzero(val5)])])
     print(label6,[np.mean(val6[np.nonzero(val6)]),np.std(val6[np.nonzero(val6)])])
@@ -214,25 +215,25 @@ Visits=Visits.reshape(X.shape[0],N_visits,1)
 es=EarlyStopping(monitor='val_loss', patience=20, mode='min')
 
 for iter_nm in range(0,N_iter):
-    print('Iteration ',iter_nm)    
+    print('Iteration ',iter_nm)
     X_train, X_test, Y_train, Y_test, Sample_weight_train, Sample_weight_test, Visit_train, Visit_test = train_test_split(X, Y,Sample_weight,Visits, test_size=T_size, shuffle=True)
     Sample_weight_train=Sample_weight_train.reshape(len(Sample_weight_train),N_visits)
-    model = Sequential()  
+    model = Sequential()
     model.add(TimeDistributed(Dense(NN_nodes[0], activation='sigmoid'), input_shape=(N_visits, X.shape[2])))
     model.add(LSTM(NN_nodes[1], return_sequences=True))
     model.add(TimeDistributed(Dense(NN_nodes[2], activation='sigmoid')))
-    model.add(TimeDistributed(Dense(NN_nodes[3], activation='sigmoid')))   
+    model.add(TimeDistributed(Dense(NN_nodes[3], activation='sigmoid')))
     model.compile(loss='binary_crossentropy', optimizer='rmsprop',sample_weight_mode='temporal', metrics=[sensitivity, specificity, ppv, npv, 'accuracy'])
   #  print(model.summary())
     #np.random.seed(1337)
-    print('Training start', 'for iteration ', iter_nm ) 
-    model.fit(X_train, Y_train, epochs=E_pochs, batch_size=B_size, verbose=0, sample_weight=Sample_weight_train,shuffle=True, validation_split=0.3, callbacks=[es])      
-    print('Training complete', 'for iteration ', iter_nm ) 
-    print('Evaluation', 'for iteration ', iter_nm )    
+    print('Training start', 'for iteration ', iter_nm )
+    model.fit(X_train, Y_train, epochs=E_pochs, batch_size=B_size, verbose=0, sample_weight=Sample_weight_train,shuffle=True, validation_split=0.3, callbacks=[es])
+    print('Training complete', 'for iteration ', iter_nm )
+    print('Evaluation', 'for iteration ', iter_nm )
     Accuracy_test[iter_nm], AUC_test[iter_nm], Sensitivity_test[iter_nm], Specificity_test[iter_nm], PR_auc[iter_nm], F1_score[iter_nm],cost_saved[iter_nm]=model_eval(model, X_test,Y_test, Sample_weight_test,exp,X_train,Y_train,Sample_weight_train)
     print('Evaluation complete', 'for iteration ', iter_nm )
 
-save_print(AUC_test, Sensitivity_test, Specificity_test, PR_auc,F1_score,cost_saved, exp) 
+save_print(AUC_test, Sensitivity_test, Specificity_test, PR_auc,F1_score,cost_saved, exp)
 
 
 ## Define different experiments
@@ -265,25 +266,25 @@ Visits=np.array(VisitIds)
 Visits=Visits.reshape(X.shape[0],N_visits,1)
 
 for iter_nm in range(0,N_iter):
-    print('Iteration ',iter_nm)    
+    print('Iteration ',iter_nm)
     X_train, X_test, Y_train, Y_test, Sample_weight_train, Sample_weight_test, Visit_train, Visit_test = train_test_split(X, Y,Sample_weight,Visits, test_size=T_size, shuffle=True)
     Sample_weight_train=Sample_weight_train.reshape(len(Sample_weight_train),N_visits)
-    model = Sequential()  
+    model = Sequential()
     model.add(TimeDistributed(Dense(NN_nodes[0], activation='sigmoid'), input_shape=(N_visits, X.shape[2])))
     model.add(LSTM(NN_nodes[1], return_sequences=True))
     model.add(TimeDistributed(Dense(NN_nodes[2], activation='sigmoid')))
-    model.add(TimeDistributed(Dense(NN_nodes[3], activation='sigmoid')))   
+    model.add(TimeDistributed(Dense(NN_nodes[3], activation='sigmoid')))
     model.compile(loss='binary_crossentropy', optimizer='rmsprop',sample_weight_mode='temporal', metrics=[sensitivity, specificity, ppv, npv, 'accuracy'])
   #  print(model.summary())
     #np.random.seed(1337)
-    print('Training start', 'for iteration ', iter_nm ) 
-    model.fit(X_train, Y_train, epochs=E_pochs, batch_size=B_size, verbose=0, sample_weight=Sample_weight_train,shuffle=True, validation_split=0.2, callbacks=[es])      
-    print('Training complete', 'for iteration ', iter_nm ) 
-    print('Evaluation', 'for iteration ', iter_nm )    
+    print('Training start', 'for iteration ', iter_nm )
+    model.fit(X_train, Y_train, epochs=E_pochs, batch_size=B_size, verbose=0, sample_weight=Sample_weight_train,shuffle=True, validation_split=0.2, callbacks=[es])
+    print('Training complete', 'for iteration ', iter_nm )
+    print('Evaluation', 'for iteration ', iter_nm )
     Accuracy_test[iter_nm], AUC_test[iter_nm], Sensitivity_test[iter_nm], Specificity_test[iter_nm], PR_auc[iter_nm], F1_score[iter_nm],cost_saved[iter_nm]=model_eval(model, X_test,Y_test, Sample_weight_test,exp,X_train,Y_train,Sample_weight_train)
     print('Evaluation complete', 'for iteration ', iter_nm )
 
-save_print(AUC_test, Sensitivity_test, Specificity_test, PR_auc,F1_score,cost_saved, exp) 
+save_print(AUC_test, Sensitivity_test, Specificity_test, PR_auc,F1_score,cost_saved, exp)
 
 
 ## Define different experiments
@@ -318,25 +319,25 @@ Visits=Visits.reshape(X.shape[0],N_visits,1)
 es=EarlyStopping(monitor='val_loss', patience=20, mode='min')
 
 for iter_nm in range(0,N_iter):
-    print('Iteration ',iter_nm)    
+    print('Iteration ',iter_nm)
     X_train, X_test, Y_train, Y_test, Sample_weight_train, Sample_weight_test, Visit_train, Visit_test = train_test_split(X, Y,Sample_weight,Visits, test_size=T_size, shuffle=True)
     Sample_weight_train=Sample_weight_train.reshape(len(Sample_weight_train),N_visits)
-    model = Sequential()  
+    model = Sequential()
     model.add(TimeDistributed(Dense(NN_nodes[0], activation='sigmoid'), input_shape=(N_visits, X.shape[2])))
     model.add(LSTM(NN_nodes[1], return_sequences=True))
     model.add(TimeDistributed(Dense(NN_nodes[2], activation='sigmoid')))
-    model.add(TimeDistributed(Dense(NN_nodes[3], activation='sigmoid')))    
+    model.add(TimeDistributed(Dense(NN_nodes[3], activation='sigmoid')))
     model.compile(loss='binary_crossentropy', optimizer='rmsprop',sample_weight_mode='temporal', metrics=[sensitivity, specificity, ppv, npv, 'accuracy'])
     print(model.summary())
     #np.random.seed(1337)
-    print('Training start', 'for iteration ', iter_nm ) 
-    model.fit(X_train, Y_train, epochs=E_pochs, batch_size=B_size, verbose=0, sample_weight=Sample_weight_train,shuffle=True, validation_split=0.2, callbacks=[es])      
-    print('Training complete', 'for iteration ', iter_nm ) 
-    print('Evaluation', 'for iteration ', iter_nm )    
+    print('Training start', 'for iteration ', iter_nm )
+    model.fit(X_train, Y_train, epochs=E_pochs, batch_size=B_size, verbose=0, sample_weight=Sample_weight_train,shuffle=True, validation_split=0.2, callbacks=[es])
+    print('Training complete', 'for iteration ', iter_nm )
+    print('Evaluation', 'for iteration ', iter_nm )
     Accuracy_test[iter_nm], AUC_test[iter_nm], Sensitivity_test[iter_nm], Specificity_test[iter_nm], PR_auc[iter_nm], F1_score[iter_nm],cost_saved[iter_nm]=model_eval(model, X_test,Y_test, Sample_weight_test,exp,X_train,Y_train,Sample_weight_train)
     print('Evaluation complete', 'for iteration ', iter_nm )
 
-save_print(AUC_test, Sensitivity_test, Specificity_test, PR_auc,F1_score,cost_saved, exp) 
+save_print(AUC_test, Sensitivity_test, Specificity_test, PR_auc,F1_score,cost_saved, exp)
 
 ## Define different experiments
     # 0110 - MDF+LSTM
@@ -368,25 +369,25 @@ Visits=np.array(VisitIds)
 Visits=Visits.reshape(X.shape[0],N_visits,1)
 
 for iter_nm in range(0,N_iter):
-    print('Iteration ',iter_nm)    
+    print('Iteration ',iter_nm)
     X_train, X_test, Y_train, Y_test, Sample_weight_train, Sample_weight_test, Visit_train, Visit_test = train_test_split(X, Y,Sample_weight,Visits, test_size=T_size, shuffle=True)
     Sample_weight_train=Sample_weight_train.reshape(len(Sample_weight_train),N_visits)
-    model = Sequential()  
+    model = Sequential()
     model.add(TimeDistributed(Dense(NN_nodes[0], activation='sigmoid'), input_shape=(N_visits, X.shape[2])))
     model.add(LSTM(NN_nodes[1], return_sequences=True))
     model.add(TimeDistributed(Dense(NN_nodes[2], activation='sigmoid')))
-    model.add(TimeDistributed(Dense(NN_nodes[3], activation='sigmoid')))    
+    model.add(TimeDistributed(Dense(NN_nodes[3], activation='sigmoid')))
     model.compile(loss='binary_crossentropy', optimizer='rmsprop',sample_weight_mode='temporal', metrics=[sensitivity, specificity, ppv, npv, 'accuracy'])
     print(model.summary())
     #np.random.seed(1337)
-    print('Training start', 'for iteration ', iter_nm ) 
-    model.fit(X_train, Y_train, epochs=E_pochs, batch_size=B_size, verbose=0, sample_weight=Sample_weight_train,shuffle=True, validation_split=0.2, callbacks=[es])      
-    print('Training complete', 'for iteration ', iter_nm ) 
-    print('Evaluation', 'for iteration ', iter_nm )    
+    print('Training start', 'for iteration ', iter_nm )
+    model.fit(X_train, Y_train, epochs=E_pochs, batch_size=B_size, verbose=0, sample_weight=Sample_weight_train,shuffle=True, validation_split=0.2, callbacks=[es])
+    print('Training complete', 'for iteration ', iter_nm )
+    print('Evaluation', 'for iteration ', iter_nm )
     Accuracy_test[iter_nm], AUC_test[iter_nm], Sensitivity_test[iter_nm], Specificity_test[iter_nm], PR_auc[iter_nm], F1_score[iter_nm],cost_saved[iter_nm]=model_eval(model, X_test,Y_test, Sample_weight_test,exp,X_train,Y_train,Sample_weight_train)
     print('Evaluation complete', 'for iteration ', iter_nm )
 
-save_print(AUC_test, Sensitivity_test, Specificity_test, PR_auc,F1_score,cost_saved, exp) 
+save_print(AUC_test, Sensitivity_test, Specificity_test, PR_auc,F1_score,cost_saved, exp)
 
 ## Define different experiments
     # 1011 - HDF+LSTM+CA
@@ -420,24 +421,24 @@ Visits=Visits.reshape(X.shape[0],N_visits,1)
 es=EarlyStopping(monitor='val_loss', patience=20, mode='min')
 
 for iter_nm in range(0,N_iter):
-    print('Iteration ',iter_nm)    
+    print('Iteration ',iter_nm)
     X_train, X_test, Y_train, Y_test, Sample_weight_train, Sample_weight_test, Visit_train, Visit_test = train_test_split(X, Y,Sample_weight,Visits, test_size=T_size, shuffle=True)
     Sample_weight_train=Sample_weight_train.reshape(len(Sample_weight_train),N_visits)
-    model = Sequential()  
+    model = Sequential()
     model.add(TimeDistributed(Dense(NN_nodes[0], activation='sigmoid'), input_shape=(N_visits, X.shape[2])))
     model.add(LSTM(NN_nodes[1], return_sequences=True))
     model.add(TimeDistributed(Dense(NN_nodes[2], activation='sigmoid')))
     model.compile(loss='binary_crossentropy', optimizer='rmsprop',sample_weight_mode='temporal', metrics=[sensitivity, specificity, ppv, npv, 'accuracy'])
     print(model.summary())
     #np.random.seed(1337)
-    print('Training start', 'for iteration ', iter_nm ) 
-    model.fit(X_train, Y_train, epochs=E_pochs, batch_size=B_size, verbose=0, sample_weight=Sample_weight_train,shuffle=True, validation_split=0.2, callbacks=[es])      
-    print('Training complete', 'for iteration ', iter_nm ) 
-    print('Evaluation', 'for iteration ', iter_nm )    
+    print('Training start', 'for iteration ', iter_nm )
+    model.fit(X_train, Y_train, epochs=E_pochs, batch_size=B_size, verbose=0, sample_weight=Sample_weight_train,shuffle=True, validation_split=0.2, callbacks=[es])
+    print('Training complete', 'for iteration ', iter_nm )
+    print('Evaluation', 'for iteration ', iter_nm )
     Accuracy_test[iter_nm], AUC_test[iter_nm], Sensitivity_test[iter_nm], Specificity_test[iter_nm], PR_auc[iter_nm], F1_score[iter_nm],cost_saved[iter_nm]=model_eval(model, X_test,Y_test, Sample_weight_test,exp,X_train,Y_train,Sample_weight_train)
     print('Evaluation complete', 'for iteration ', iter_nm )
 
-save_print(AUC_test, Sensitivity_test, Specificity_test, PR_auc,F1_score,cost_saved, exp) 
+save_print(AUC_test, Sensitivity_test, Specificity_test, PR_auc,F1_score,cost_saved, exp)
 
 
 ## Define different experiments
@@ -471,25 +472,25 @@ Visits=np.array(VisitIds)
 Visits=Visits.reshape(X.shape[0],N_visits,1)
 
 for iter_nm in range(0,N_iter):
-    print('Iteration ',iter_nm)    
+    print('Iteration ',iter_nm)
     X_train, X_test, Y_train, Y_test, Sample_weight_train, Sample_weight_test, Visit_train, Visit_test = train_test_split(X, Y,Sample_weight,Visits, test_size=T_size, shuffle=True)
     Sample_weight_train=Sample_weight_train.reshape(len(Sample_weight_train),N_visits)
-    model = Sequential()  
+    model = Sequential()
     model.add(TimeDistributed(Dense(NN_nodes[0], activation='sigmoid'), input_shape=(N_visits, X.shape[2])))
     model.add(LSTM(NN_nodes[1], return_sequences=True))
-    model.add(TimeDistributed(Dense(NN_nodes[2], activation='sigmoid')))   
+    model.add(TimeDistributed(Dense(NN_nodes[2], activation='sigmoid')))
     model.compile(loss='binary_crossentropy', optimizer='rmsprop',sample_weight_mode='temporal', metrics=[sensitivity, specificity, ppv, npv, 'accuracy'])
     print(model.summary())
     #np.random.seed(1337)
-    print(model.summary()) 
-    print('Training start', 'for iteration ', iter_nm ) 
-    model.fit(X_train, Y_train, epochs=E_pochs, batch_size=B_size, verbose=0, sample_weight=Sample_weight_train,shuffle=True, validation_split=0.2, callbacks=[es])      
-    print('Training complete', 'for iteration ', iter_nm ) 
-    print('Evaluation', 'for iteration ', iter_nm )    
+    print(model.summary())
+    print('Training start', 'for iteration ', iter_nm )
+    model.fit(X_train, Y_train, epochs=E_pochs, batch_size=B_size, verbose=0, sample_weight=Sample_weight_train,shuffle=True, validation_split=0.2, callbacks=[es])
+    print('Training complete', 'for iteration ', iter_nm )
+    print('Evaluation', 'for iteration ', iter_nm )
     Accuracy_test[iter_nm], AUC_test[iter_nm], Sensitivity_test[iter_nm], Specificity_test[iter_nm], PR_auc[iter_nm], F1_score[iter_nm],cost_saved[iter_nm]=model_eval(model, X_test,Y_test, Sample_weight_test,exp,X_train,Y_train,Sample_weight_train)
     print('Evaluation complete', 'for iteration ', iter_nm )
 
-save_print(AUC_test, Sensitivity_test, Specificity_test, PR_auc,F1_score,cost_saved, exp) 
+save_print(AUC_test, Sensitivity_test, Specificity_test, PR_auc,F1_score,cost_saved, exp)
 
 ## Define different experiments
     # 1101 - HDF+MDF+CA
@@ -528,22 +529,22 @@ Y=np.delete(Y,ind,0)
 Sample_weight=np.delete(Sample_weight,ind,0)
 Visits=np.delete(Visits,ind,0)
 for iter_nm in range(0,N_iter):
-    print('Iteration ',iter_nm)    
+    print('Iteration ',iter_nm)
     X_train, X_test, Y_train, Y_test, Sample_weight_train, Sample_weight_test, Visit_train, Visit_test = train_test_split(X, Y,Sample_weight,Visits, test_size=T_size, shuffle=True)
-    model = Sequential()   
-    model.add(Dense(NN_nodes[0], activation='sigmoid', input_dim=c))  
-    model.add(Dense(NN_nodes[1], activation='sigmoid'))            
+    model = Sequential()
+    model.add(Dense(NN_nodes[0], activation='sigmoid', input_dim=c))
+    model.add(Dense(NN_nodes[1], activation='sigmoid'))
     model.add(Dense(NN_nodes[2], activation='sigmoid'))
     model.compile(loss='binary_crossentropy', optimizer='rmsprop',sample_weight_mode='None', metrics=[sensitivity, specificity, ppv, npv, 'accuracy'])
-    print(model.summary()) 
-    print('Training start', 'for iteration ', iter_nm ) 
-    model.fit(X_train, Y_train, epochs=E_pochs, batch_size=B_size, verbose=0, sample_weight=Sample_weight_train,shuffle=True, validation_split=0.2, callbacks=[es])      
-    print('Training complete', 'for iteration ', iter_nm ) 
-    print('Evaluation', 'for iteration ', iter_nm )    
+    print(model.summary())
+    print('Training start', 'for iteration ', iter_nm )
+    model.fit(X_train, Y_train, epochs=E_pochs, batch_size=B_size, verbose=0, sample_weight=Sample_weight_train,shuffle=True, validation_split=0.2, callbacks=[es])
+    print('Training complete', 'for iteration ', iter_nm )
+    print('Evaluation', 'for iteration ', iter_nm )
     Accuracy_test[iter_nm], AUC_test[iter_nm], Sensitivity_test[iter_nm], Specificity_test[iter_nm], PR_auc[iter_nm], F1_score[iter_nm],cost_saved[iter_nm]=model_eval(model, X_test,Y_test, Sample_weight_test,exp,X_train,Y_train,Sample_weight_train)
     print('Evaluation complete', 'for iteration ', iter_nm )
 
-save_print(AUC_test, Sensitivity_test, Specificity_test, PR_auc,F1_score,cost_saved, exp) 
+save_print(AUC_test, Sensitivity_test, Specificity_test, PR_auc,F1_score,cost_saved, exp)
 
 ## Define different experiments
     # 1101 - HDF+MDF
@@ -582,21 +583,21 @@ Y=np.delete(Y,ind,0)
 Sample_weight=np.delete(Sample_weight,ind,0)
 Visits=np.delete(Visits,ind,0)
 for iter_nm in range(0,N_iter):
-    print('Iteration ',iter_nm)    
+    print('Iteration ',iter_nm)
     X_train, X_test, Y_train, Y_test, Sample_weight_train, Sample_weight_test, Visit_train, Visit_test = train_test_split(X, Y,Sample_weight,Visits, test_size=T_size, shuffle=True)
-    model = Sequential()   
-    model.add(Dense(NN_nodes[0], activation='sigmoid', input_dim=c))  
-    model.add(Dense(NN_nodes[1], activation='sigmoid'))            
+    model = Sequential()
+    model.add(Dense(NN_nodes[0], activation='sigmoid', input_dim=c))
+    model.add(Dense(NN_nodes[1], activation='sigmoid'))
     model.add(Dense(NN_nodes[2], activation='sigmoid'))
     model.compile(loss='binary_crossentropy', optimizer='rmsprop',sample_weight_mode='None', metrics=[sensitivity, specificity, ppv, npv, 'accuracy'])
-    print('Training start', 'for iteration ', iter_nm ) 
-    model.fit(X_train, Y_train, epochs=E_pochs, batch_size=B_size, verbose=0, sample_weight=Sample_weight_train,shuffle=True, validation_split=0.3, callbacks=[es])      
-    print('Training complete', 'for iteration ', iter_nm ) 
-    print('Evaluation', 'for iteration ', iter_nm )    
+    print('Training start', 'for iteration ', iter_nm )
+    model.fit(X_train, Y_train, epochs=E_pochs, batch_size=B_size, verbose=0, sample_weight=Sample_weight_train,shuffle=True, validation_split=0.3, callbacks=[es])
+    print('Training complete', 'for iteration ', iter_nm )
+    print('Evaluation', 'for iteration ', iter_nm )
     Accuracy_test[iter_nm], AUC_test[iter_nm], Sensitivity_test[iter_nm], Specificity_test[iter_nm], PR_auc[iter_nm], F1_score[iter_nm],cost_saved[iter_nm]=model_eval(model, X_test,Y_test, Sample_weight_test,exp,X_train,Y_train,Sample_weight_train)
     print('Evaluation complete', 'for iteration ', iter_nm )
 
-save_print(AUC_test, Sensitivity_test, Specificity_test, PR_auc,F1_score,cost_saved, exp)  
+save_print(AUC_test, Sensitivity_test, Specificity_test, PR_auc,F1_score,cost_saved, exp)
 
 
 ## Define different experiments
@@ -636,21 +637,21 @@ Y=np.delete(Y,ind,0)
 Sample_weight=np.delete(Sample_weight,ind,0)
 Visits=np.delete(Visits,ind,0)
 for iter_nm in range(0,N_iter):
-    print('Iteration ',iter_nm)    
+    print('Iteration ',iter_nm)
     X_train, X_test, Y_train, Y_test, Sample_weight_train, Sample_weight_test, Visit_train, Visit_test = train_test_split(X, Y,Sample_weight,Visits, test_size=T_size, shuffle=True)
-    model = Sequential()   
-    model.add(Dense(NN_nodes[0], activation='sigmoid', input_dim=c))  
-    model.add(Dense(NN_nodes[1], activation='sigmoid'))            
+    model = Sequential()
+    model.add(Dense(NN_nodes[0], activation='sigmoid', input_dim=c))
+    model.add(Dense(NN_nodes[1], activation='sigmoid'))
     model.add(Dense(NN_nodes[2], activation='sigmoid'))
     model.compile(loss='binary_crossentropy', optimizer='rmsprop',sample_weight_mode='None', metrics=[sensitivity, specificity, ppv, npv, 'accuracy'])
-    print('Training start', 'for iteration ', iter_nm ) 
-    model.fit(X_train, Y_train, epochs=E_pochs, batch_size=B_size, verbose=0, sample_weight=Sample_weight_train,shuffle=True, validation_split=0.2, callbacks=[es])      
-    print('Training complete', 'for iteration ', iter_nm ) 
-    print('Evaluation', 'for iteration ', iter_nm )    
+    print('Training start', 'for iteration ', iter_nm )
+    model.fit(X_train, Y_train, epochs=E_pochs, batch_size=B_size, verbose=0, sample_weight=Sample_weight_train,shuffle=True, validation_split=0.2, callbacks=[es])
+    print('Training complete', 'for iteration ', iter_nm )
+    print('Evaluation', 'for iteration ', iter_nm )
     Accuracy_test[iter_nm], AUC_test[iter_nm], Sensitivity_test[iter_nm], Specificity_test[iter_nm], PR_auc[iter_nm], F1_score[iter_nm],cost_saved[iter_nm]=model_eval(model, X_test,Y_test, Sample_weight_test,exp,X_train,Y_train,Sample_weight_train)
     print('Evaluation complete', 'for iteration ', iter_nm )
 
-save_print(AUC_test, Sensitivity_test, Specificity_test, PR_auc,F1_score,cost_saved, exp) 
+save_print(AUC_test, Sensitivity_test, Specificity_test, PR_auc,F1_score,cost_saved, exp)
 
 
 ## Define different experiments
@@ -690,21 +691,21 @@ Y=np.delete(Y,ind,0)
 Sample_weight=np.delete(Sample_weight,ind,0)
 Visits=np.delete(Visits,ind,0)
 for iter_nm in range(0,N_iter):
-    print('Iteration ',iter_nm)    
+    print('Iteration ',iter_nm)
     X_train, X_test, Y_train, Y_test, Sample_weight_train, Sample_weight_test, Visit_train, Visit_test = train_test_split(X, Y,Sample_weight,Visits, test_size=T_size, shuffle=True)
-    model = Sequential()   
-    model.add(Dense(NN_nodes[0], activation='sigmoid', input_dim=c))  
-    model.add(Dense(NN_nodes[1], activation='sigmoid'))            
+    model = Sequential()
+    model.add(Dense(NN_nodes[0], activation='sigmoid', input_dim=c))
+    model.add(Dense(NN_nodes[1], activation='sigmoid'))
     model.add(Dense(NN_nodes[2], activation='sigmoid'))
     model.compile(loss='binary_crossentropy', optimizer='rmsprop',sample_weight_mode='None', metrics=[sensitivity, specificity, ppv, npv, 'accuracy'])
-    print('Training start', 'for iteration ', iter_nm ) 
-    model.fit(X_train, Y_train, epochs=E_pochs, batch_size=B_size, verbose=0, sample_weight=Sample_weight_train,shuffle=True, validation_split=0.2, callbacks=[es])      
-    print('Training complete', 'for iteration ', iter_nm ) 
-    print('Evaluation', 'for iteration ', iter_nm )    
+    print('Training start', 'for iteration ', iter_nm )
+    model.fit(X_train, Y_train, epochs=E_pochs, batch_size=B_size, verbose=0, sample_weight=Sample_weight_train,shuffle=True, validation_split=0.2, callbacks=[es])
+    print('Training complete', 'for iteration ', iter_nm )
+    print('Evaluation', 'for iteration ', iter_nm )
     Accuracy_test[iter_nm], AUC_test[iter_nm], Sensitivity_test[iter_nm], Specificity_test[iter_nm], PR_auc[iter_nm], F1_score[iter_nm],cost_saved[iter_nm]=model_eval(model, X_test,Y_test, Sample_weight_test,exp,X_train,Y_train,Sample_weight_train)
     print('Evaluation complete', 'for iteration ', iter_nm )
 
-save_print(AUC_test, Sensitivity_test, Specificity_test, PR_auc,F1_score,cost_saved, exp) 
+save_print(AUC_test, Sensitivity_test, Specificity_test, PR_auc,F1_score,cost_saved, exp)
 
 ## Define different experiments
     # 1000 - MDF only
@@ -743,21 +744,21 @@ Y=np.delete(Y,ind,0)
 Sample_weight=np.delete(Sample_weight,ind,0)
 Visits=np.delete(Visits,ind,0)
 for iter_nm in range(0,N_iter):
-    print('Iteration ',iter_nm)    
+    print('Iteration ',iter_nm)
     X_train, X_test, Y_train, Y_test, Sample_weight_train, Sample_weight_test, Visit_train, Visit_test = train_test_split(X, Y,Sample_weight,Visits, test_size=T_size, shuffle=True)
-    model = Sequential()   
-    model.add(Dense(NN_nodes[0], activation='sigmoid', input_dim=c))  
-    model.add(Dense(NN_nodes[1], activation='sigmoid'))            
+    model = Sequential()
+    model.add(Dense(NN_nodes[0], activation='sigmoid', input_dim=c))
+    model.add(Dense(NN_nodes[1], activation='sigmoid'))
     model.add(Dense(NN_nodes[2], activation='sigmoid'))
     model.compile(loss='binary_crossentropy', optimizer='rmsprop',sample_weight_mode='None', metrics=[sensitivity, specificity, ppv, npv, 'accuracy'])
-    print('Training start', 'for iteration ', iter_nm ) 
-    model.fit(X_train, Y_train, epochs=E_pochs, batch_size=B_size, verbose=0, sample_weight=Sample_weight_train,shuffle=True, validation_split=0.2, callbacks=[es])      
-    print('Training complete', 'for iteration ', iter_nm ) 
-    print('Evaluation', 'for iteration ', iter_nm )    
+    print('Training start', 'for iteration ', iter_nm )
+    model.fit(X_train, Y_train, epochs=E_pochs, batch_size=B_size, verbose=0, sample_weight=Sample_weight_train,shuffle=True, validation_split=0.2, callbacks=[es])
+    print('Training complete', 'for iteration ', iter_nm )
+    print('Evaluation', 'for iteration ', iter_nm )
     Accuracy_test[iter_nm], AUC_test[iter_nm], Sensitivity_test[iter_nm], Specificity_test[iter_nm], PR_auc[iter_nm], F1_score[iter_nm],cost_saved[iter_nm]=model_eval(model, X_test,Y_test, Sample_weight_test,exp,X_train,Y_train,Sample_weight_train)
     print('Evaluation complete', 'for iteration ', iter_nm )
 
-save_print(AUC_test, Sensitivity_test, Specificity_test, PR_auc,F1_score,cost_saved, exp) 
+save_print(AUC_test, Sensitivity_test, Specificity_test, PR_auc,F1_score,cost_saved, exp)
 
 
 ## Define different experiments
@@ -797,41 +798,41 @@ Y=np.delete(Y,ind,0)
 Sample_weight=np.delete(Sample_weight,ind,0)
 Visits=np.delete(Visits,ind,0)
 for iter_nm in range(0,N_iter):
-    print('Iteration ',iter_nm)    
+    print('Iteration ',iter_nm)
     X_train, X_test, Y_train, Y_test, Sample_weight_train, Sample_weight_test, Visit_train, Visit_test = train_test_split(X, Y,Sample_weight,Visits, test_size=T_size, shuffle=True)
-    model = Sequential()   
-    model.add(Dense(NN_nodes[0], activation='sigmoid', input_dim=c))  
-    model.add(Dense(NN_nodes[1], activation='sigmoid'))            
+    model = Sequential()
+    model.add(Dense(NN_nodes[0], activation='sigmoid', input_dim=c))
+    model.add(Dense(NN_nodes[1], activation='sigmoid'))
     model.add(Dense(NN_nodes[2], activation='sigmoid'))
     model.compile(loss='binary_crossentropy', optimizer='rmsprop',sample_weight_mode='None', metrics=[sensitivity, specificity, ppv, npv, 'accuracy'])
-    print('Training start', 'for iteration ', iter_nm ) 
-    model.fit(X_train, Y_train, epochs=E_pochs, batch_size=B_size, verbose=0, sample_weight=Sample_weight_train,shuffle=True, validation_split=0.2, callbacks=[es])      
-    print('Training complete', 'for iteration ', iter_nm ) 
-    print('Evaluation', 'for iteration ', iter_nm )    
+    print('Training start', 'for iteration ', iter_nm )
+    model.fit(X_train, Y_train, epochs=E_pochs, batch_size=B_size, verbose=0, sample_weight=Sample_weight_train,shuffle=True, validation_split=0.2, callbacks=[es])
+    print('Training complete', 'for iteration ', iter_nm )
+    print('Evaluation', 'for iteration ', iter_nm )
     Accuracy_test[iter_nm], AUC_test[iter_nm], Sensitivity_test[iter_nm], Specificity_test[iter_nm], PR_auc[iter_nm], F1_score[iter_nm],cost_saved[iter_nm]=model_eval(model, X_test,Y_test, Sample_weight_test,exp,X_train,Y_train,Sample_weight_train)
     print('Evaluation complete', 'for iteration ', iter_nm )
 
-save_print(AUC_test, Sensitivity_test, Specificity_test, PR_auc,F1_score,cost_saved, exp)  
+save_print(AUC_test, Sensitivity_test, Specificity_test, PR_auc,F1_score,cost_saved, exp)
 
 #print([np.mean(np.fromiter(np.load('cost_saved_1111.npy').item().values(), dtype=float)),np.std(np.fromiter(np.load('cost_saved_1111.npy').item().values(), dtype=float))])
 
-AUC_1111=np.fromiter(np.load('AUC_test_1111.npy').item().values(), dtype=float)
-AUC_1110=np.fromiter(np.load('AUC_test_1110.npy').item().values(), dtype=float)
-AUC_1011=np.fromiter(np.load('AUC_test_1011.npy').item().values(), dtype=float)
-AUC_0111=np.fromiter(np.load('AUC_test_0111.npy').item().values(), dtype=float)
-AUC_1101=np.fromiter(np.load('AUC_test_1101.npy').item().values(), dtype=float)
+AUC_1111=np.fromiter(np.load('AUC_test_1111.npy', allow_pickle=True).item().values(), dtype=float)
+AUC_1110=np.fromiter(np.load('AUC_test_1110.npy', allow_pickle=True).item().values(), dtype=float)
+AUC_1011=np.fromiter(np.load('AUC_test_1011.npy', allow_pickle=True).item().values(), dtype=float)
+AUC_0111=np.fromiter(np.load('AUC_test_0111.npy', allow_pickle=True).item().values(), dtype=float)
+AUC_1101=np.fromiter(np.load('AUC_test_1101.npy', allow_pickle=True).item().values(), dtype=float)
 
-cs_1111=np.fromiter(np.load('cost_saved_1111.npy').item().values(), dtype=float)
-cs_1110=np.fromiter(np.load('cost_saved_1110.npy').item().values(), dtype=float)
-cs_1011=np.fromiter(np.load('cost_saved_1011.npy').item().values(), dtype=float)
-cs_0111=np.fromiter(np.load('cost_saved_0111.npy').item().values(), dtype=float)
-cs_1101=np.fromiter(np.load('cost_saved_1101.npy').item().values(), dtype=float)
+cs_1111=np.fromiter(np.load('cost_saved_1111.npy', allow_pickle=True).item().values(), dtype=float)
+cs_1110=np.fromiter(np.load('cost_saved_1110.npy', allow_pickle=True).item().values(), dtype=float)
+cs_1011=np.fromiter(np.load('cost_saved_1011.npy', allow_pickle=True).item().values(), dtype=float)
+cs_0111=np.fromiter(np.load('cost_saved_0111.npy', allow_pickle=True).item().values(), dtype=float)
+cs_1101=np.fromiter(np.load('cost_saved_1101.npy', allow_pickle=True).item().values(), dtype=float)
 
-f1_1111=np.fromiter(np.load('f1_score_1111.npy').item().values(), dtype=float)
-f1_1110=np.fromiter(np.load('f1_score_1110.npy').item().values(), dtype=float)
-f1_1011=np.fromiter(np.load('f1_score_1011.npy').item().values(), dtype=float)
-f1_0111=np.fromiter(np.load('f1_score_0111.npy').item().values(), dtype=float)
-f1_1101=np.fromiter(np.load('f1_score_1101.npy').item().values(), dtype=float)
+f1_1111=np.fromiter(np.load('f1_score_1111.npy', allow_pickle=True).item().values(), dtype=float)
+f1_1110=np.fromiter(np.load('f1_score_1110.npy', allow_pickle=True).item().values(), dtype=float)
+f1_1011=np.fromiter(np.load('f1_score_1011.npy', allow_pickle=True).item().values(), dtype=float)
+f1_0111=np.fromiter(np.load('f1_score_0111.npy', allow_pickle=True).item().values(), dtype=float)
+f1_1101=np.fromiter(np.load('f1_score_1101.npy', allow_pickle=True).item().values(), dtype=float)
 
 
 #aucs_mean = [np.mean(AUC_1111), np.mean(AUC_1110)]
