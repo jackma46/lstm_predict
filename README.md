@@ -1,4 +1,6 @@
-# Readmission prediction using deep learning on electronic health records
+# UIUC CS598 Deep Learning for Healthcare Final Project
+Readmission prediction using deep learning on electronic health records
+
 Article: https://www.sciencedirect.com/science/article/pii/S1532046419301753?via%3Dihub
 
 # Requirements
@@ -33,6 +35,8 @@ Save these files in csv format to "minicIII" folder in the working directory.
 Originally from https://github.com/caisr-hh/lstm_predict
 
 Modified by Jack Ma for UIUC CS598 Deep Learning for Healthcare
+
+Team 86 - jma46
 
 Paper 288 - Easy
 
